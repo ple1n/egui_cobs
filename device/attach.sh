@@ -1,0 +1,1 @@
+# probe-rs attach ./target/thumbv7em-none-eabi/debug/main --chip STM32G431CBUx

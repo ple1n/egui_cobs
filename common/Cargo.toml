@@ -1,0 +1,17 @@
+[package]
+name = "common"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+futures-util = { version = "0.3.30", default-features = false }
+postcard = { version = "1.0.8", default-features = false, features = [
+    "heapless",
+    "use-defmt",
+] }
+serde = { version = "1.0.203", features = ["derive"], default-features = false }
+heapless = { version = "0.7.0", default-features = false, features = ["serde"] }
+defmt = "0.3.8"
+atomic = "0.6.0"
+bytemuck = { version = "1.16.1", features = ["derive"] }
+static_assertions = "1.1.0"

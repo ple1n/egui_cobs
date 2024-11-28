@@ -1,0 +1,22 @@
+[package]
+name = "ui"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0.89"
+common = { version = "0.1.0", path = "../common" }
+derive-new = "0.7.0"
+eframe = "0.29.1"
+egui = "0.29.1"
+egui_extras = "0.29.1"
+futures = "0.3.31"
+postcard = "1.1.0"
+serde = "1.0.215"
+serialport = "4.6.0"
+tokio = { version = "1.40.0", features = ["full"] }
+tokio-serial = "5.4.4"
+tracing = "0.1.40"
+tracing-subscriber = "0.3.18"
+
+
