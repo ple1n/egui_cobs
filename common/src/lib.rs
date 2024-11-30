@@ -1,6 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 
-use core::mem::size_of;
+use core::{default, mem::size_of};
 
 use bytemuck::NoUninit;
 use defmt::Format;
@@ -8,12 +8,31 @@ use heapless::Vec;
 use serde::{self, Deserialize, Serialize};
 use static_assertions::const_assert;
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Format)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WireMessage {
-    pub ack: u64
+    pub cmd: Command,
+    pub reports: Vec<Report, 4>,
+    pub compact: Vec<u8, 4>,
 }
 
-pub const MAX_PACKET_SIZE: usize = 4096;
+impl Default for WireMessage {
+    fn default() -> Self {
+        Self {
+            cmd: Command::Ping,
+            reports: Default::default(),
+            compact: Default::default(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Format)]
+pub enum Command {
+    #[default]
+    Report,
+    Ping,
+}
+
+pub const MAX_PACKET_SIZE: usize = 64;
 
 const_assert!(size_of::<WireMessage>() < MAX_PACKET_SIZE);
 
@@ -21,6 +40,4 @@ pub mod cob;
 pub mod num;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Format)]
-pub struct Report {
-
-}
+pub struct Report {}

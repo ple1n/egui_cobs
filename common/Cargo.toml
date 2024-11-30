@@ -10,7 +10,10 @@ postcard = { version = "1.0.8", default-features = false, features = [
     "use-defmt",
 ] }
 serde = { version = "1.0.203", features = ["derive"], default-features = false }
-heapless = { version = "0.7.0", default-features = false, features = ["serde"] }
+heapless = { version = "0.7.0", default-features = false, features = [
+    "serde",
+    "defmt",
+] }
 defmt = "0.3.8"
 atomic = "0.6.0"
 bytemuck = { version = "1.16.1", features = ["derive"] }

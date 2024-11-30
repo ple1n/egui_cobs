@@ -12,6 +12,8 @@ use ui::{
 };
 
 fn main() -> eframe::Result {
+    tracing_subscriber::fmt::init();
+
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
         hardware_acceleration: eframe::HardwareAcceleration::Preferred,
@@ -30,8 +32,10 @@ fn main() -> eframe::Result {
                     .build()?;
                 rt.block_on(async {
                     loop {
-                        let _ = find_conn(usb_sx.clone()).await;
-                        warn!("disconnected");
+                        let e = find_conn(usb_sx.clone()).await;
+                        tracing::error!("{:?}", e);
+                        warn!("all devices disconnected");
+                        sleep(Duration::from_secs(30)).await;
                     }
 
                     Result::<_, anyhow::Error>::Ok(())

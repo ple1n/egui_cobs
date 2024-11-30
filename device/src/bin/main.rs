@@ -27,7 +27,7 @@ use common::{
         COBErr::{Codec, NextRead},
         COBSeek, COB,
     },
-    Report, WireMessage, MAX_PACKET_SIZE,
+    Command, Report, WireMessage, MAX_PACKET_SIZE,
 };
 use defmt::*;
 use embassy_futures::{
@@ -57,7 +57,7 @@ use lock_free_static::lock_free_static;
 use panic_halt as _;
 use ringbuf::{
     storage::Owning,
-    traits::{Producer, SplitRef},
+    traits::{Consumer, Producer, SplitRef},
     wrap::caching::Caching,
     SharedRb, StaticRb,
 };
@@ -153,7 +153,7 @@ async fn main(spawner: Spawner) {
 
     let (mut sx, mut rx) = class.split();
     info!("usb max packet size, {}", sx.max_packet_size());
-    let (q_prod, cons) = unwrap!(QUEUE.try_split().map_err(|x| "bbq split"));
+    let (q_prod, cons) = unwrap!(QUEUE.try_split().map_err(|_| "bbq split"));
 
     defmt::assert!(RING_BUF.init());
 
@@ -161,6 +161,10 @@ async fn main(spawner: Spawner) {
     let mut bufrd = BufReaders {
         queue: cons,
         ringbuf: rb_consumer,
+    };
+    let sending = Sending {
+        queue: q_prod,
+        ringbuf: rb_prod,
     };
 
     let report_fut = async {
@@ -235,8 +239,10 @@ async fn listen<'d, T: 'd + embassy_stm32::usb::Instance>(
         let cob: COB<WireMessage> = COB::new(&mut buf[..], &copy);
         for msg in cob {
             if let Ok(msg) = msg {
-                debug!("{:?}", &msg);
-                match msg {
+                match msg.cmd {
+                    common::Command::Ping => {
+                        TX_SIGNAL.signal(Command::Report);
+                    }
                     _ => (),
                 }
             } else {
@@ -259,11 +265,20 @@ lock_free_static! {
 }
 
 struct BufReaders {
+    /// lossless stream of bytes, for compact transfer
     queue: bbqueue::Consumer<'static, QUEUE_LEN>,
+    /// for real time but non-lossless status report
+    /// this is a window representing [a few seconds ago] --to---> [present]
+    /// each time a reporting is triggered, the entire buffer is sent and cleared.
     ringbuf: Caching<&'static SharedRb<Owning<[MaybeUninit<Report>; RING_BUFLEN]>>, false, true>,
 }
 
-static TX_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
+struct Sending {
+    queue: bbqueue::Producer<'static, QUEUE_LEN>,
+    ringbuf: Caching<&'static SharedRb<Owning<[MaybeUninit<Report>; RING_BUFLEN]>>, true, false>,
+}
+
+static TX_SIGNAL: Signal<CriticalSectionRawMutex, Command> = Signal::new();
 
 async fn report<'d, T: 'd + embassy_stm32::usb::Instance>(
     class: &mut cdc_acm::Sender<'d, Driver<'d, T>>,
@@ -281,8 +296,13 @@ async fn report<'d, T: 'd + embassy_stm32::usb::Instance>(
         }
     }
     loop {
-        TX_SIGNAL.wait().await;
-        let reply = WireMessage::default();
+        let cmd = TX_SIGNAL.wait().await;
+        // let rd = queue.read().unwrap();
+        let reply = WireMessage {
+            reports: rb.pop_iter().collect(),
+            cmd,
+            compact: Default::default(),
+        };
         let rx: Result<heapless::Vec<u8, 1024>, postcard::Error> = postcard::to_vec_cobs(&reply);
         if let Ok(coded) = rx {
             let mut chunks = coded.into_iter().array_chunks::<64>();

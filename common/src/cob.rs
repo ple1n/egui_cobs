@@ -142,21 +142,3 @@ impl<'s> Iterator for COBSeek<'s> {
     }
 }
 
-#[test]
-fn postcard_gen() {
-    let m = G4Command::CheckState;
-    let mut v = [0u8; 16];
-    postcard::to_slice_cobs(&m, &mut v[..]).unwrap();
-    let mut v2: Vec<_> = v.clone().into_iter().cycle().take(32).collect();
-    let mut v3: Vec<_> = v.clone().into_iter().cycle().take(34).collect();
-    let mut v4 = Vec::from_iter([1, 2, 0].into_iter().chain(v3));
-    fn test(v: &mut [u8]) {
-        dbg!(&v);
-        let copy = Vec::from(&*v);
-        let co: Vec<Result<G4Command, _>> = COB::new(v, &copy).collect();
-        dbg!(&co);
-        dbg!(v);
-    }
-
-    test(&mut v4);
-}
