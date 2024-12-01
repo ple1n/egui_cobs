@@ -27,7 +27,7 @@ use common::{
         COBErr::{Codec, NextRead},
         COBSeek, COB,
     },
-    Command, Report, WireMessage, MAX_PACKET_SIZE,
+    Command, Particles, Report, WireMessage, MAX_PACKET_SIZE,
 };
 use defmt::*;
 use embassy_futures::{
@@ -75,8 +75,10 @@ use embassy_stm32::{
     gpio::{self, Input, Level, Output, Pull, Speed},
     i2c,
     interrupt::{self, InterruptExt},
+    peripherals::PC13,
     time::{khz, mhz, Hertz},
     timer::{low_level, pwm_input::PwmInput},
+    usart::{self, Uart},
     usb::Driver,
     Config, Peripheral,
 };
@@ -87,6 +89,7 @@ bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     USB_LP_CAN1_RX0 => usb::InterruptHandler<peripherals::USB>;
+    USART1 => usart::InterruptHandler<peripherals::USART1>;
 });
 
 type UsbDriver = embassy_stm32::usb::Driver<'static, embassy_stm32::peripherals::USB>;
@@ -117,6 +120,13 @@ async fn main(spawner: Spawner) {
         config.rcc.apb2_pre = APBPrescaler::DIV1;
     }
     let mut p = embassy_stm32::init(config);
+
+    let mut conf = usart::Config::default();
+    conf.baudrate = 9600;
+    conf.detect_previous_overrun = false;
+    let mut uart = unwrap!(Uart::new(
+        p.USART1, p.PA10, p.PA9, Irqs, p.DMA1_CH4, p.DMA1_CH5, conf
+    ));
 
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Plein");
@@ -167,6 +177,9 @@ async fn main(spawner: Spawner) {
         ringbuf: rb_prod,
     };
 
+    info!("start uart");
+    unwrap!(spawner.spawn(uart_task(uart, p.PC13, sending)));
+
     let report_fut = async {
         let sig = unwrap!(unsafe { USB_SIGNAL.publisher() });
         loop {
@@ -187,6 +200,40 @@ async fn main(spawner: Spawner) {
     };
 
     report_fut.await
+}
+
+#[embassy_executor::task]
+async fn uart_task(
+    mut uart: Uart<'static, embassy_stm32::mode::Async>,
+    led: PC13,
+    mut sender: Sending,
+) -> ! {
+    let mut led = gpio::Output::new(led, Level::Low, Speed::Low);
+
+    loop {
+        let mut buf = [0; 32];
+        led.toggle();
+        let r = uart.read(&mut buf).await;
+        if r.is_ok() {
+            info!("{:?}", buf);
+            if buf[..=1] == [66, 77] {
+                let rx = Particles {
+                    pm1: u16::from_be_bytes(buf[4..=5].try_into().unwrap()),
+                    pm2: u16::from_be_bytes(buf[6..=7].try_into().unwrap()),
+                    pm10: u16::from_be_bytes(buf[8..=9].try_into().unwrap()),
+                };
+                let rp = Report { particle: rx };
+                sender.ringbuf.push_iter([rp].into_iter());
+                TX_SIGNAL.signal(Command::Report);
+                info!("{:?}", rx);
+            } else {
+                warn!("{:?}", r)
+            }
+        } else {
+            warn!("{:?}", r)
+        }
+        led.toggle();
+    }
 }
 
 static USB_SIGNAL: PubSubChannel<CriticalSectionRawMutex, UsbState, 2, 2, 1> = PubSubChannel::new();
@@ -303,6 +350,7 @@ async fn report<'d, T: 'd + embassy_stm32::usb::Instance>(
             cmd,
             compact: Default::default(),
         };
+        for _ in rb.pop_iter() {}
         let rx: Result<heapless::Vec<u8, 1024>, postcard::Error> = postcard::to_vec_cobs(&reply);
         if let Ok(coded) = rx {
             let mut chunks = coded.into_iter().array_chunks::<64>();

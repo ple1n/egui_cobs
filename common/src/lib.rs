@@ -11,7 +11,7 @@ use static_assertions::const_assert;
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct WireMessage {
     pub cmd: Command,
-    pub reports: Vec<Report, 4>,
+    pub reports: Vec<Report, 2>,
     pub compact: Vec<u8, 4>,
 }
 
@@ -40,4 +40,14 @@ pub mod cob;
 pub mod num;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, Format)]
-pub struct Report {}
+pub struct Report {
+    pub particle: Particles
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Format)]
+// Valid range 0 to 700
+pub struct Particles {
+    pub pm1: u16,
+    pub pm2: u16,
+    pub pm10: u16,
+}

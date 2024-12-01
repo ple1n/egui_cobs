@@ -22,7 +22,10 @@ use tokio::{
 use tokio_serial::SerialPortBuilderExt;
 use tracing::{debug, info, trace};
 
-use crate::bufrecv::EguiSender;
+use crate::{
+    bufrecv::{EguiSender, Merge},
+    Data,
+};
 
 #[derive(Debug, PartialEq, Eq, Default, Clone, Copy)]
 pub enum USBState {
@@ -31,7 +34,14 @@ pub enum USBState {
     Waiting,
 }
 
-pub async fn find_conn(sx: EguiSender<USBState>) -> Result<bool> {
+impl Merge for USBState {
+    type Delta = Self;
+    fn merge(&mut self, incoming: Self::Delta) {
+        *self = incoming;
+    }
+}
+
+pub async fn find_conn(sx: EguiSender<USBState>, data: EguiSender<Data>) -> Result<bool> {
     info!("find conn");
     let ports = serialport::available_ports()?;
     let mut fv: JoinSet<std::result::Result<(), anyhow::Error>> = JoinSet::new();
@@ -41,7 +51,7 @@ pub async fn find_conn(sx: EguiSender<USBState>) -> Result<bool> {
             if u.manufacturer.as_ref().unwrap() == "Plein" {
                 let (c, f) = make_conn(p.port_name);
                 fv.spawn(f);
-                fv.spawn(c.test());
+                fv.spawn(c.meter(data.clone()));
                 sx.send(USBState::Connected).await?;
                 found = true;
             }
@@ -85,6 +95,16 @@ impl Conn {
             info!("recv {:?}", &m);
         }
         info!("test fin");
+        Ok(())
+    }
+    pub async fn meter(mut self, sx: EguiSender<Data>) -> Result<()> {
+        info!("meter started");
+        while let Some(m) = self.from_dev.next().await {
+            let _ = sx.send(Data {
+                points: m.reports.into_iter().collect(),
+            }).await;
+        }
+
         Ok(())
     }
 }
